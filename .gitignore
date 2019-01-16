@@ -1,0 +1,6 @@
+vendor
+
+config.json
+*.txt
+*.swp
+*Z
