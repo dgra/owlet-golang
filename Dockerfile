@@ -13,7 +13,8 @@ RUN apk update && \
     wget && \
   rm -rf /var/cache/apk/* && \
   go mod vendor && \
-  CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -tags netgo -ldflags '-w -extldflags "-static"' -o /main
+  CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -tags netgo -ldflags '-w -extldflags "-static"' -o /main && \
+  cp config.json /config.json
 
 ##
 # Using scratch as a base means I need to compile the go code as a single statically linked executable.
@@ -24,6 +25,7 @@ FROM scratch
 # ca-certificats for ssl connections, our config and our executable.
 COPY --from=builder /github.com/dgra/owlet-golang/config.json /config.json
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /config.json /config.json
 COPY --from=builder /main /main
 
 CMD ["/main"]

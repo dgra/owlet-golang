@@ -13,12 +13,22 @@ go get github.com/dgra/owlet-golang
 See main.go for an example consumer.
 
 ## Run example program(main.go)
+Create a config.json in the same forlder as `main.go`
 ```
-OWLET_EMAIL=YOUR_EMAIL_ADDRESS OWLET_PASSWORD=YOUR_PASSWORD go run main.go
+#owlet-golang/config.json
+{
+  "email": "YOUR EMAIL HERE",
+  "password: "YOUR PASSWORD HERE"
+}
+```
+Then simply run.
+```
+go run main.go
 ```
 
 ## Using with docker
 ### Build
+### This docker image may not be the best solution at the time. It _may_ not save file to local system. I haven't used/touched it in a while.
 ```
 $ docker build -t owlet-golang -f Dockerfile .
 ```
