@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
@@ -97,7 +96,7 @@ func (fv *FlexValue) UnmarshalJSON(b []byte) error {
 		return nil
 	}
 
-	*fv = FlexValue(fmt.Sprintf("\"%s\"", string(b)))
+	*fv = FlexValue(fmt.Sprintf("%s", string(b)))
 	return nil
 }
 
@@ -124,7 +123,7 @@ func logRequest(req *http.Request) {
 	fmt.Printf("Outgoing request:\n%s\nEnd request\n", string(dump))
 }
 
-func (c *Client) Post(subdomain, endpoint string, data io.Reader, v interface{}) error {
+func (c *Client) Post(subdomain, endpoint string, data interface{}, v interface{}) error {
 	return c.MakeRequest("POST", subdomain, endpoint, data, v)
 }
 
@@ -132,33 +131,33 @@ func (c *Client) Get(subdomain, endpoint string, v interface{}) error {
 	return c.MakeRequest("GET", subdomain, endpoint, nil, v)
 }
 
-func (c *Client) MakeRequest(method, subdomain, endpoint string, data io.Reader, v interface{}) error {
-	req, err := NewRequestWithAuthoriztion(c.Auth, method, subdomain, endpoint, data)
-	if err != nil {
-		return err
-	}
+func (c *Client) MakeRequest(method, subdomain, endpoint string, data interface{}, v interface{}) error {
+	resp, err := c.doWithAuthorization(method, subdomain, endpoint, data, v)
+	if resp.StatusCode == 401 {
+		// Reauthorize/Refresh and re-run request if 401.
+		err = c.login()
+		if err != nil {
+			return err
+		}
 
-	logRequest(req)
-
-	resp, err := c.implementationClient.Do(req)
-	if err != nil {
-		// Err is 401? Refresh auth and try again.
-		fmt.Println("401?", err)
-		return err
+		resp, err = c.doWithAuthorization(method, subdomain, endpoint, data, v)
 	}
 
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
-	fmt.Println(endpoint, string(body))
 	return json.Unmarshal(body, v)
 }
 
-func (c *Client) authenticate() error {
-	if c.Auth == nil {
-		return c.login()
+func (c *Client) doWithAuthorization(method, subdomain, endpoint string, data, v interface{}) (*http.Response, error) {
+	req, err := NewRequestWithAuthoriztion(c.Auth, method, subdomain, endpoint, data)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+
+	logRequest(req)
+
+	return c.implementationClient.Do(req)
 }
 
 func (c *Client) SetFirstDevice() error {
@@ -217,13 +216,9 @@ func (c *Client) SetAppActiveStatus(deviceID string) (bool, error) {
 			Value: 1,
 		},
 	}
-	sendingBody, err := StructToReader(reqDP)
-	if err != nil {
-		return false, err
-	}
 
 	respDP := &datapointRequest{}
-	err = c.Post("ads-field", endpoint, sendingBody, respDP)
+	err := c.Post("ads-field", endpoint, reqDP, respDP)
 	if err != nil {
 		return false, err
 	}
@@ -244,12 +239,7 @@ func (c *Client) login() error {
 		},
 	}
 
-	sendingBody, err := StructToReader(data)
-	if err != nil {
-		return err
-	}
-
-	req, err := NewRequest("POST", "user-field", "users/sign_in", sendingBody)
+	req, err := NewRequest("POST", "user-field", "users/sign_in", data)
 	if err != nil {
 		return err
 	}
@@ -270,6 +260,8 @@ func (c *Client) login() error {
 	fmt.Println(auth)
 
 	c.Auth = auth
+	// refreshAuth before expires at
+	// go c.refreshAuth()
 	return nil
 }
 
@@ -280,11 +272,11 @@ func New(email, password string) (*Client, error) {
 		implementationClient: http.DefaultClient,
 	}
 
-	err := c.authenticate()
+	err := c.login()
 	return c, err
 }
 
-func NewRequestWithAuthoriztion(auth *Authentication, method, subdomain, endpoint string, data io.Reader) (*http.Request, error) {
+func NewRequestWithAuthoriztion(auth *Authentication, method, subdomain, endpoint string, data interface{}) (*http.Request, error) {
 	req, err := NewRequest(method, subdomain, endpoint, data)
 	if err != nil {
 		return nil, err
@@ -293,9 +285,17 @@ func NewRequestWithAuthoriztion(auth *Authentication, method, subdomain, endpoin
 	return req, nil
 }
 
-func NewRequest(method, subdomain, endpoint string, data io.Reader) (*http.Request, error) {
+func NewRequest(method, subdomain, endpoint string, data interface{}) (*http.Request, error) {
 	url := fmt.Sprintf("https://%s.aylanetworks.com/%s", subdomain, endpoint)
-	req, err := http.NewRequest(method, url, data)
+
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+
+	dataReader := bytes.NewReader(payload)
+
+	req, err := http.NewRequest(method, url, dataReader)
 	if err != nil {
 		return nil, err
 	}
@@ -305,16 +305,38 @@ func NewRequest(method, subdomain, endpoint string, data io.Reader) (*http.Reque
 	return req, nil
 }
 
-func StructToReader(data interface{}) (*bytes.Reader, error) {
-	payloadBytes, err := json.Marshal(data)
+func (c *Client) refreshAuth() {
+	// Delay running until to auth is about expire
+	secondsBefore := 20
+	expiration := c.Auth.ExpiresIn
+	whenToRefresh := expiration - secondsBefore
+	fmt.Printf("Going to refresh token in %d\n", whenToRefresh)
+	time.Sleep(time.Duration(whenToRefresh) * time.Second)
+	fmt.Println("Refreshing token...")
+
+	req, err := NewRequest("POST", "user-field", "users/refresh_token", c.Auth)
 	if err != nil {
-		return nil, err
+		fmt.Println("Failed to create request for refresh auth.", c.Auth, err)
 	}
 
-	return bytes.NewReader(payloadBytes), nil
-}
+	resp, err := c.implementationClient.Do(req)
+	if err != nil {
+		fmt.Println("Faild to request a refresh auth.", c.Auth, err)
+	}
+	defer resp.Body.Close()
 
-//
-// func (c *Client) refreshAuth(auth *Authentication) {
-//
-// }
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println("Faild to read refresh auth response.", body, err)
+	}
+
+	auth := &Authentication{}
+	err = json.Unmarshal(body, auth)
+	if err != nil {
+		fmt.Println("Faild to parse refresh auth response.", body, err)
+	}
+
+	c.Auth = auth
+
+	go c.refreshAuth()
+}

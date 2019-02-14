@@ -3,14 +3,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"time"
 
 	"github.com/dgra/owlet-golang/client"
 	"github.com/spf13/viper"
 )
-
-var attempts = 0
 
 type config struct {
 	Email    string `map_structure:"email"`
@@ -34,6 +33,22 @@ func LoadConfig() *config {
 	return config
 }
 
+func backoff(msg string, attempt int) int {
+	maxAttempts := 20
+	if attempt >= maxAttempts {
+		attempt = maxAttempts - 1
+	}
+
+	backoff_time := math.Pow(2.0, float64(attempt))
+
+	fmt.Printf("Backing off for %.2f milliseconds. Attempt %d of %d\n", backoff_time, attempt, maxAttempts)
+	fmt.Println(msg)
+
+	time.Sleep(time.Duration(backoff_time) * time.Millisecond)
+	attempt++
+	return attempt
+}
+
 func main() {
 	config := LoadConfig()
 	client, err := client.New(config.Email, config.Password)
@@ -48,63 +63,53 @@ func main() {
 		return
 	}
 
-	// fmt.Printf("Device: %+v\n", client.Device)
-
-	// 1. Set App Active Status
-	// 2. Read last datapoints.
-	// 	2a. If Base station is off, start exponential backoff to n minutes(Don't dos ayla if not needed)? (20 minutes?)
-	// 3. Wait n miliseconds
-	// 4. GOTO 1
-
-	attempts = 1
-
-	filename := time.Now().UTC().Format(time.RFC3339)
-	file, err := os.Create(filename)
+	// Log out to file instead of new one each day.
+	file, err := os.OpenFile("owlet_data.json", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		fmt.Printf("Failed to create file. %s\n", err)
 		return
 	}
 	defer file.Close()
 
+	attempts := 1
+	propAttempts := 1
 	for {
-		// 2.
 		properties, err := client.GetProperties(client.Device.DSN)
 		if err != nil {
-			fmt.Printf("Failed to get properties for %s. %+v\n", client.Device.DSN, err)
-			return
+			propAttempts = backoff(fmt.Sprintf("Failed to get properties for %s. %+v\n", client.Device.DSN, err), propAttempts)
+			continue
+		}
+		propAttempts = 1
+
+		props_json, err := json.Marshal(properties)
+		if err != nil {
+			fmt.Printf("Failed to unmarshal properties for %s. %+v\n", client.Device.DSN, err)
+			continue
 		}
 
-		// fmt.Println("Props:")
-		// fmt.Printf("%+v\n", properties)
-		props_json, err := json.Marshal(properties)
-		fmt.Fprintf(file, "%s,\n", string(props_json))
+		chargeStatus := properties["CHARGE_STATUS"].Value
+
+		if chargeStatus == "2" {
+			attempts = backoff(fmt.Sprintf("Backing off due to CHARGE_STATUS"), attempts)
+			continue
+		}
+		attempts = 1
+
+		// Append to our file.
+		fmt.Fprintf(file, "%s\n", string(props_json))
+
+		// STDOUT logging of specific stats.
 		fmt.Printf("%+v\n", properties["CHARGE_STATUS"])
 		fmt.Printf("%+v\n", properties["BASE_STATION_ON"])
 		fmt.Printf("%+v\n", properties["BATT_LEVEL"])
 		fmt.Printf("%+v\n", properties["OXYGEN_LEVEL"])
 		fmt.Printf("%+v\n", properties["HEART_RATE"])
 
-		fmt.Println("Attempt:", attempts)
-
-		attempts++
-		// 2a.
-		if properties["CHARGE_STATUS"].Value != "2" {
-			// 1.
-			attempts = 1
-			work, err := client.SetAppActiveStatus(client.Device.DSN)
-			if err != nil {
-				fmt.Printf("Failed to set APP_ACTIVE: %+v\n", err)
-				return
-			}
-			fmt.Println("Work:", work)
-		} else {
-			attempts++
+		_, err = client.SetAppActiveStatus(client.Device.DSN)
+		if err != nil {
+			fmt.Printf("Failed to set APP_ACTIVE: %+v\n", err)
 		}
 
-		// Min wait is 2 seconds to give APP_ACTIVE to cause a record write.
-		// backoff_time := math.Pow(2000.0, float64(attempts))
-		// time.Sleep(time.Duration(backoff_time) * time.Millisecond)
-		// time.Sleep(15 * time.Minute)
-		time.Sleep(5 * time.Second)
+		time.Sleep(2 * time.Second)
 	}
 }
