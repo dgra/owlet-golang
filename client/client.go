@@ -133,6 +133,10 @@ func (c *Client) Get(subdomain, endpoint string, v interface{}) error {
 
 func (c *Client) MakeRequest(method, subdomain, endpoint string, data interface{}, v interface{}) error {
 	resp, err := c.doWithAuthorization(method, subdomain, endpoint, data, v)
+	if err != nil {
+		return err
+	}
+
 	if resp.StatusCode == 401 {
 		// Reauthorize/Refresh and re-run request if 401.
 		err = c.login()
@@ -141,6 +145,9 @@ func (c *Client) MakeRequest(method, subdomain, endpoint string, data interface{
 		}
 
 		resp, err = c.doWithAuthorization(method, subdomain, endpoint, data, v)
+		if err != nil {
+			return err
+		}
 	}
 
 	defer resp.Body.Close()

@@ -35,14 +35,13 @@ func LoadConfig() *config {
 
 func backoff(msg string, attempt int) int {
 	maxAttempts := 20
+	backoff_time := math.Pow(2.0, float64(attempt))
+	fmt.Printf("Backing off for %.2f milliseconds. Attempt %d of %d\n", backoff_time, attempt, maxAttempts)
+	fmt.Println(msg)
+
 	if attempt >= maxAttempts {
 		attempt = maxAttempts - 1
 	}
-
-	backoff_time := math.Pow(2.0, float64(attempt))
-
-	fmt.Printf("Backing off for %.2f milliseconds. Attempt %d of %d\n", backoff_time, attempt, maxAttempts)
-	fmt.Println(msg)
 
 	time.Sleep(time.Duration(backoff_time) * time.Millisecond)
 	attempt++
