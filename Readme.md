@@ -1,7 +1,7 @@
 ## Owlet-Golang
 An Owlet specific client for Ayla networks api.
 
-An example client is provided but could be improved upon a lot. It works though.
+An example client is provided but could be improved upon a lot. It currently works though.
 
 ## Disclaimer
 This code is in no way "official" or affiliated with Owlet Babe Care in any way. This is an Unoffical API client and should be used at your own risk.
