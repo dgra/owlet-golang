@@ -1,6 +1,7 @@
 vendor
 
-config.json
+example/main
+*.json
 *.txt
 *.swp
 *Z
