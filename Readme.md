@@ -14,7 +14,7 @@ go get github.com/dgra/owlet-golang
 ## Usage
 See example/main.go for an example consumer.
 
-## Run example program(main.go)
+## Run example consumer (example/main.go)
 Create a config.json in the same folder as `main.go`
 ```
 #owlet-golang/example/config.json
@@ -25,5 +25,5 @@ Create a config.json in the same folder as `main.go`
 ```
 Then simply run.
 ```
-go run main.go # or go build main.go for an executable.
+go run main.go
 ```
