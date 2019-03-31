@@ -88,10 +88,11 @@ func main() {
 
 		chargeStatus := properties["CHARGE_STATUS"].Value
 
-		if chargeStatus == "2" {
+		if chargeStatus != "0" {
 			attempts = backoff(fmt.Sprintf("Backing off due to CHARGE_STATUS"), attempts)
 			continue
 		}
+
 		attempts = 1
 
 		// Append to our file.
